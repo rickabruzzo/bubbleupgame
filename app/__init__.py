@@ -35,6 +35,7 @@ class GS:
     GAMEOVER = 3
     SPLASH   = 4
     HEATMAP  = 5
+    INTRO    = 6
 
 # ---------------------------------------------------------------------------
 # Board templates
@@ -126,7 +127,7 @@ score          = 0
 timeouts       = 0
 round_num      = 0
 MAX_TIMEOUTS   = 5
-BASE_TIMER     = 30000  # 30 s
+BASE_TIMER     = 45000  # 45 s
 
 selected_board    = [0]
 selected_attr     = [0]
@@ -141,7 +142,7 @@ flash_type       = [0]        # 0 = error (red), 1 = neutral (no anomaly), 2 = s
 flash_next_state = [GS.HOME]  # state to go to after flash clears
 success_board    = [None]     # board ref held during success flash
 FLASH_DURATION   = 1200       # ms for error/neutral
-SUCCESS_DURATION = 2500       # ms for success overlay
+SUCCESS_DURATION = 4000       # ms for success overlay
 board_count      = [0]        # ever-incrementing counter for template rotation
 
 # ---------------------------------------------------------------------------
@@ -153,9 +154,9 @@ def _now():
 
 def _board_timer_ms():
     """Return timer duration for the next board added."""
-    if round_num < 3:
+    if round_num < 8:
         return BASE_TIMER
-    factor = max(0.4, 1.0 - (round_num - 3) * 0.05)
+    factor = max(0.4, 1.0 - (round_num - 8) * 0.05)
     return int(BASE_TIMER * factor)
 
 
@@ -200,11 +201,10 @@ def _clamp(v, lo, hi):
 
 
 def _pause_inactive_boards():
-    """Freeze timers on all boards except the active one."""
+    """Freeze timers on ALL boards during investigation."""
     now = _now()
     for b in boards:
-        if b is not active_board[0]:
-            b["_paused_at"] = now
+        b["_paused_at"] = now
 
 
 def _resume_inactive_boards():
@@ -334,6 +334,54 @@ def _timer_color(frac):
 
 
 # ---------------------------------------------------------------------------
+# INTRO screen (BubbleUp explanation)
+# ---------------------------------------------------------------------------
+def _draw_intro():
+    screen.pen = COL_SLATE
+    screen.rectangle(0, 0, SW, SH)
+
+    # Title bar
+    screen.pen = COL_COBALT
+    screen.rectangle(0, 0, SW, 28)
+    screen.pen = COL_WHITE
+    screen.font = large_font
+    screen.text("BubbleUp", 88, 5)
+
+    # Explanation box
+    screen.pen = color.rgb(15, 22, 35)
+    screen.rectangle(10, 38, 300, 140)
+    screen.pen = COL_COBALT
+    screen.rectangle(10, 38, 300, 2)
+    screen.rectangle(10, 176, 300, 2)
+    screen.rectangle(10, 38, 2, 140)
+    screen.rectangle(308, 38, 2, 140)
+
+    screen.pen = COL_WHITE
+    screen.font = small_font
+    screen.text("Anomaly alerts are firing.", 20, 50)
+    screen.text("Use BubbleUp to find the root", 20, 66)
+    screen.text("cause before your SLAs breach.", 20, 80)
+    screen.pen = COL_HONEY
+    screen.text("1. Select a spiking board", 20, 100)
+    screen.text("2. Find the anomalous attribute", 20, 114)
+    screen.text("3. Identify the culprit span", 20, 128)
+    screen.pen = COL_TANGO
+    screen.text("5 SLA breaches = game over.", 20, 152)
+
+    # Prompt
+    screen.pen = COL_LIME
+    screen.font = small_font
+    screen.text("Press B to begin", 100, 195)
+
+
+def _handle_intro_input():
+    if _just_pressed("BUTTON_B"):
+        _maybe_add_boards()
+        _prev_pressed.clear()
+        state[0] = GS.HOME
+
+
+# ---------------------------------------------------------------------------
 # HOME screen
 # ---------------------------------------------------------------------------
 def _draw_home():
@@ -410,7 +458,10 @@ def _handle_home_input():
     if _just_pressed("BUTTON_B"):
         active_board[0] = boards[selected_board[0]]
         selected_hmap_bar[0] = 0
+        flash_timer[0] = 0
+        flash_type[0] = 0
         _pause_inactive_boards()
+        _prev_pressed.clear()
         state[0] = GS.HEATMAP
 
 
@@ -505,6 +556,9 @@ def _handle_heatmap_input():
         if selected_hmap_bar[0] == spike_idx:
             # Correct bar — go to BubbleUp
             selected_attr[0] = 0
+            flash_timer[0] = 0
+            flash_type[0] = 0
+            _prev_pressed.clear()
             state[0] = GS.BUBBLEUP
         else:
             # Wrong bar — neutral flash
@@ -749,6 +803,9 @@ def _maybe_add_boards():
 def _check_timeouts():
     global timeouts
     now = _now()
+    # Don't expire boards while player is actively investigating
+    if state[0] in (GS.HEATMAP, GS.BUBBLEUP, GS.TRACE):
+        return
     expired = [b for b in boards if (now - b["start_ms"]) >= b["timer_ms"]]
     for b in expired:
         timeouts += 1
@@ -837,28 +894,28 @@ def _draw_splash():
     # Background image
     screen.blit(IMG_SPLASH_BG, vec2(0, 0))
 
-    # Dark legibility strip behind text overlay (y=138 to y=210)
+    # Dark legibility strip behind text overlay
     screen.pen = color.rgb(8, 12, 20)
-    screen.rectangle(0, 138, SW, 72)
+    screen.rectangle(0, 130, SW, 100)
 
     # Instructions
     screen.pen = COL_WHITE
     screen.font = small_font
-    screen.text("Spike detected. Investigate fast.", 44, 148)
-    screen.text("Find the bad attribute. Find span.", 44, 162)
-    screen.text("5 SLA breaches = game over.", 65, 176)
+    screen.text("Spike detected. Investigate fast.", 44, 140)
+    screen.text("Find the bad attribute. Find span.", 44, 154)
+    screen.text("5 SLA breaches = game over.", 65, 168)
 
     # Controls hint
     screen.pen = COL_HONEY
     screen.font = small_font
-    screen.text("UP/DN:select  A/C:left/right  B:ok", 37, 192)
+    screen.text("UP/DN:select  A/C:left/right  B:ok", 37, 184)
 
     # Blinking prompt
     blink_on = (((_now() - blink_timer[0]) // 500) % 2) == 0
     if blink_on:
         screen.pen = COL_LIME
         screen.font = small_font
-        screen.text("[ ANY BUTTON ] START", 90, 208)
+        screen.text("[ ANY BUTTON ] START", 90, 212)
 
 
 def _handle_splash_input():
@@ -868,8 +925,7 @@ def _handle_splash_input():
     )
     if any_pressed:
         boards.clear()
-        _maybe_add_boards()
-        state[0] = GS.HOME
+        state[0] = GS.INTRO
 
 
 # ---------------------------------------------------------------------------
@@ -909,22 +965,28 @@ def _draw_flash():
         screen.font = small_font
         screen.text("Try another attribute", box_x + 10, box_y + 22)
     elif flash_type[0] == 2:
-        # Success — "Issue discovered!" box
-        box_x = SW // 2 - 95
-        box_y = SH // 2 - 22
-        screen.pen = color.rgb(10, 30, 15)
-        screen.rectangle(box_x, box_y, 190, 44)
+        # Success — full screen overlay
+        screen.pen = color.rgb(5, 40, 10)
+        screen.rectangle(0, 0, SW, SH)
+        # Top and bottom accent bars
         screen.pen = COL_LIME
-        screen.rectangle(box_x, box_y, 190, 2)
-        screen.rectangle(box_x, box_y + 42, 190, 2)
-        screen.rectangle(box_x, box_y, 2, 44)
-        screen.rectangle(box_x + 188, box_y, 2, 44)
+        screen.rectangle(0, 0, SW, 6)
+        screen.rectangle(0, SH - 6, SW, 6)
+        # Main message
         screen.pen = COL_LIME
         screen.font = large_font
-        screen.text("Issue discovered!", box_x + 10, box_y + 6)
+        screen.text("Issue Discovered!", 52, 70)
+        # Subtext
         screen.pen = COL_WHITE
         screen.font = small_font
-        screen.text("Root cause identified.", box_x + 18, box_y + 30)
+        screen.text("Root cause identified.", 84, 110)
+        screen.text("Returning to boards...", 84, 126)
+        # Score so far
+        screen.pen = COL_HONEY
+        screen.font = large_font
+        score_str = "Score: {}".format(score)
+        score_x = (SW - len(score_str) * 14) // 2
+        screen.text(score_str, score_x, 160)
 
 
 # ---------------------------------------------------------------------------
@@ -933,14 +995,18 @@ def _draw_flash():
 def update():
     cur_state = state[0]
 
-    # Check timeouts except during GAMEOVER, SPLASH, and active investigation
-    if cur_state not in (GS.GAMEOVER, GS.SPLASH):
+    # Check timeouts except during GAMEOVER, SPLASH, INTRO, and active investigation
+    if cur_state not in (GS.GAMEOVER, GS.SPLASH, GS.INTRO):
         _check_timeouts()
         cur_state = state[0]
 
     if cur_state == GS.SPLASH:
         _draw_splash()
         _handle_splash_input()
+
+    elif cur_state == GS.INTRO:
+        _draw_intro()
+        _handle_intro_input()
 
     elif cur_state == GS.HOME:
         _draw_home()
