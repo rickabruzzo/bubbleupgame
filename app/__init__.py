@@ -749,6 +749,10 @@ def _draw_trace():
 def _handle_trace_input():
     global score, round_num, timeouts
 
+    # Don't process input during success flash
+    if flash_type[0] == 2 and flash_timer[0] > 0:
+        return
+
     board = active_board[0]
     if board is None:
         state[0] = GS.HOME
@@ -779,11 +783,9 @@ def _handle_trace_input():
             flash_next_state[0] = GS.HOME
             state[0] = GS.TRACE
         else:
-            # Wrong span — error flash and back to BUBBLEUP
+            # Wrong span — neutral overlay, stay on TRACE
             flash_timer[0] = _now()
-            flash_type[0] = 0
-            selected_attr[0] = 0
-            state[0] = GS.BUBBLEUP
+            flash_type[0] = 1
 
 
 # ---------------------------------------------------------------------------
