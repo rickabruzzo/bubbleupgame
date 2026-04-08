@@ -142,7 +142,7 @@ flash_type       = [0]        # 0 = error (red), 1 = neutral (no anomaly), 2 = s
 flash_next_state = [GS.HOME]  # state to go to after flash clears
 success_board    = [None]     # board ref held during success flash
 FLASH_DURATION   = 1200       # ms for error/neutral
-SUCCESS_DURATION = 4000       # ms for success overlay
+SUCCESS_DURATION = 2000       # ms for success overlay
 board_count      = [0]        # ever-incrementing counter for template rotation
 
 # ---------------------------------------------------------------------------
@@ -406,12 +406,16 @@ def _draw_home():
         bg = COL_NAVY if idx != selected_board[0] else color.rgb(30, 40, 60)
         screen.pen = bg
         screen.rectangle(0, sy, SW, strip_h)
-        # Selection highlight border
+        # Selection highlight — Lime marquee border + INVESTIGATE label
         if idx == selected_board[0]:
-            screen.pen = COL_TANGO
-            screen.rectangle(0, sy, SW, 1)
-            screen.pen = COL_TANGO
-            screen.rectangle(0, sy + strip_h - 1, SW, 1)
+            screen.pen = COL_LIME
+            screen.rectangle(0, sy, SW, 2)
+            screen.rectangle(0, sy + strip_h - 2, SW, 2)
+            screen.rectangle(0, sy, 2, strip_h)
+            screen.rectangle(SW - 2, sy, 2, strip_h)
+            screen.pen = COL_LIME
+            screen.font = small_font
+            screen.text("INVESTIGATE >", SW - 100, sy + 3)
 
         # Label
         screen.pen = COL_HONEY
@@ -781,6 +785,7 @@ def _handle_trace_input():
             flash_timer[0] = _now()
             flash_type[0] = 2
             flash_next_state[0] = GS.HOME
+            _pause_inactive_boards()
             state[0] = GS.TRACE
         else:
             # Wrong span — neutral overlay, stay on TRACE
@@ -943,6 +948,7 @@ def _draw_flash():
         if flash_type[0] == 2:
             active_board[0] = None
             success_board[0] = None
+            _resume_inactive_boards()
             state[0] = flash_next_state[0]
         return
     if flash_type[0] == 0:
