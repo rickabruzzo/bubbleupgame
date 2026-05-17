@@ -902,21 +902,17 @@ def _draw_splash():
     # Background image
     screen.blit(IMG_SPLASH_BG, vec2(0, 0))
 
-    # Dark legibility strip behind text overlay
-    screen.pen = color.rgb(8, 12, 20)
-    screen.rectangle(0, 130, SW, 100)
-
     # Instructions
     screen.pen = COL_WHITE
     screen.font = small_font
-    screen.text("Spike detected. Investigate fast.", vec2(44, 140))
-    screen.text("Find the bad attribute. Find span.", vec2(44, 154))
-    screen.text("5 SLA breaches = game over.", vec2(65, 168))
+    screen.text("Find the bad attribute.", vec2(12, 112))
+    screen.text("Find the span.", vec2(12, 126))
+    screen.text("5 SLA breaches = game over.", vec2(12, 144))
 
     # Controls hint
     screen.pen = COL_HONEY
     screen.font = small_font
-    screen.text("UP/DN:select  A/C:left/right  B:ok", vec2(37, 184))
+    screen.text("UP/DN/A/C: move  B: fire", vec2(12, 162))
 
     # Blinking prompt
     blink_on = (((_now() - blink_timer[0]) // 500) % 2) == 0
