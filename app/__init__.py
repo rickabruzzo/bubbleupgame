@@ -1,149 +1,188 @@
 import sys, os, gc, time
-sys.path.insert(0, "/system/apps/bubbleup")
-os.chdir("/system/apps/bubbleup")
-from badgeware import run
-mode(HIRES)
-large_font = rom_font.yesterday
-small_font = rom_font.nope
-IMG_LOGOMARK   = image.load("assets/hc_logomark.png")
-IMG_LOGO_WHITE = image.load("assets/hc_logo_white.png")
-IMG_SPLASH_BG  = image.load("assets/splash_bg.png")
 
-# ---------------------------------------------------------------------------
-# Honeycomb brand colors
-# ---------------------------------------------------------------------------
-COL_SLATE   = color.rgb(37,  48,  62)
-COL_COBALT  = color.rgb(2,   120, 205)
-COL_PACIFIC = color.rgb(2,   152, 236)
-COL_LIME    = color.rgb(100, 186, 0)
-COL_HONEY   = color.rgb(255, 176, 0)
-COL_TANGO   = color.rgb(249, 110, 16)
-COL_INDIGO  = color.rgb(81,  54,  141)
-COL_DENIM   = color.rgb(1,   72,  123)
-COL_WHITE   = color.rgb(220, 240, 255)
-COL_DIM     = color.rgb(80,  80,  80)
-COL_DARK    = color.rgb(8,   12,  20)
-COL_NAVY    = color.rgb(20,  30,  50)
+def _write_top_level_error(label, exc):
+    try:
+        with open("/error.log", "w") as _f:
+            _f.write(f"=== {label} ===\n")
+            _f.write(f"Type: {type(exc).__name__}\n")
+            _f.write(f"Message: {str(exc)}\n")
+            _f.write("\nTraceback:\n")
+            sys.print_exception(exc, _f)
+    except Exception:
+        pass
 
-# ---------------------------------------------------------------------------
-# Game states
-# ---------------------------------------------------------------------------
-class GS:
-    HOME     = 0
-    BUBBLEUP = 1
-    TRACE    = 2
-    GAMEOVER = 3
-    SPLASH   = 4
-    HEATMAP  = 5
-    INTRO    = 6
 
-# ---------------------------------------------------------------------------
-# Board templates
-# ---------------------------------------------------------------------------
-BOARD_TEMPLATES = [
-    {
-        "label": "frontend",
-        "heatmap":      [4, 7, 5, 8, 6, 38, 7, 4, 6, 8],
-        "hmap_spike_idx": 5,
-        "attributes": [
-            {"name": "http.route",   "bars": [3, 5, 4, 6], "spike": True,  "spike_idx": 2},
-            {"name": "browser.name", "bars": [4, 6, 3, 7], "spike": False, "spike_idx": -1},
-            {"name": "user.region",  "bars": [5, 3, 6, 4], "spike": False, "spike_idx": -1},
-            {"name": "app.version",  "bars": [6, 4, 5, 3], "spike": False, "spike_idx": -1},
-        ],
-        "trace_spans": [
-            {"name": "frontend-web",  "service": "frontend", "duration_ms": 120,  "culprit": False},
-            {"name": "api-gateway",   "service": "frontend", "duration_ms": 85,   "culprit": False},
-            {"name": "render-svc",    "service": "frontend", "duration_ms": 4800, "culprit": True},
-            {"name": "cache-lookup",  "service": "checkout", "duration_ms": 40,   "culprit": False},
-            {"name": "db-query",      "service": "db",       "duration_ms": 95,   "culprit": False},
-            {"name": "cdn-fetch",     "service": "frontend", "duration_ms": 60,   "culprit": False},
-        ],
-    },
-    {
-        "label": "checkout",
-        "heatmap":      [5, 3, 39, 6, 4, 8, 5, 7, 6, 4],
-        "hmap_spike_idx": 2,
-        "attributes": [
-            {"name": "payment.method",  "bars": [4, 7, 5, 6], "spike": False, "spike_idx": -1},
-            {"name": "cart.item_count", "bars": [6, 4, 7, 3], "spike": True,  "spike_idx": 1},
-            {"name": "geo.country",     "bars": [3, 6, 4, 7], "spike": False, "spike_idx": -1},
-            {"name": "session.type",    "bars": [7, 5, 3, 6], "spike": False, "spike_idx": -1},
-        ],
-        "trace_spans": [
-            {"name": "checkout-ui",  "service": "checkout", "duration_ms": 110,  "culprit": False},
-            {"name": "pricing-svc",  "service": "checkout", "duration_ms": 75,   "culprit": False},
-            {"name": "inventory-db", "service": "db",       "duration_ms": 4200, "culprit": True},
-            {"name": "tax-calc",     "service": "checkout", "duration_ms": 55,   "culprit": False},
-            {"name": "fraud-check",  "service": "frontend", "duration_ms": 130,  "culprit": False},
-            {"name": "cart-persist", "service": "db",       "duration_ms": 90,   "culprit": False},
-        ],
-    },
-    {
-        "label": "payments",
-        "heatmap":      [6, 4, 5, 7, 8, 4, 6, 5, 40, 4],
-        "hmap_spike_idx": 8,
-        "attributes": [
-            {"name": "error.type",    "bars": [5, 3, 7, 4], "spike": False, "spike_idx": -1},
-            {"name": "db.table",      "bars": [4, 6, 5, 7], "spike": False, "spike_idx": -1},
-            {"name": "provider.name", "bars": [7, 4, 6, 3], "spike": False, "spike_idx": -1},
-            {"name": "txn.currency",  "bars": [3, 7, 4, 6], "spike": True,  "spike_idx": 3},
-        ],
-        "trace_spans": [
-            {"name": "pay-gateway",  "service": "checkout", "duration_ms": 95,   "culprit": False},
-            {"name": "stripe-call",  "service": "frontend", "duration_ms": 150,  "culprit": False},
-            {"name": "ledger-write", "service": "db",       "duration_ms": 80,   "culprit": False},
-            {"name": "pay-auth-svc", "service": "checkout", "duration_ms": 4600, "culprit": True},
-            {"name": "receipt-gen",  "service": "frontend", "duration_ms": 45,   "culprit": False},
-            {"name": "notify-svc",   "service": "checkout", "duration_ms": 70,   "culprit": False},
-        ],
-    },
-    {
-        "label": "auth",
-        "heatmap":      [3, 41, 4, 7, 5, 4, 6, 3, 5, 7],
-        "hmap_spike_idx": 1,
-        "attributes": [
-            {"name": "auth.method", "bars": [6, 4, 5, 3], "spike": False, "spike_idx": -1},
-            {"name": "user.tier",   "bars": [3, 5, 4, 6], "spike": False, "spike_idx": -1},
-            {"name": "region.code", "bars": [5, 3, 6, 4], "spike": False, "spike_idx": -1},
-            {"name": "token.type",  "bars": [4, 6, 3, 5], "spike": True,  "spike_idx": 0},
-        ],
-        "trace_spans": [
-            {"name": "auth-gateway",  "service": "frontend", "duration_ms": 80,   "culprit": False},
-            {"name": "token-verify",  "service": "checkout", "duration_ms": 55,   "culprit": False},
-            {"name": "session-store", "service": "db",       "duration_ms": 70,   "culprit": False},
-            {"name": "rate-limiter",  "service": "checkout", "duration_ms": 45,   "culprit": False},
-            {"name": "jwt-decode",    "service": "frontend", "duration_ms": 4900, "culprit": True},
-            {"name": "audit-log",     "service": "db",       "duration_ms": 60,   "culprit": False},
-        ],
-    },
-]
+try:
+    sys.path.insert(0, "/system/apps/BubbleUp_game")
+    os.chdir("/system/apps/BubbleUp_game")
+    badge.mode(HIRES | VSYNC)
+    screen.antialias = image.X4
+    large_font = pixel_font.load("/system/assets/fonts/yesterday.ppf")
+    small_font = pixel_font.load("/system/assets/fonts/nope.ppf")
+    IMG_LOGOMARK   = image.load("assets/hc_logomark.png")
+    IMG_LOGO_WHITE = image.load("assets/hc_logo_white.png")
+    IMG_SPLASH_BG  = image.load("assets/splash_bg.png")
 
-# ---------------------------------------------------------------------------
-# Active game state
-# ---------------------------------------------------------------------------
-boards         = []    # list of active board dicts: {template, start_ms, timer_ms}
-score          = 0
-timeouts       = 0
-round_num      = 0
-MAX_TIMEOUTS   = 5
-BASE_TIMER     = 45000  # 45 s
+    # ---------------------------------------------------------------------------
+    # Honeycomb brand colors
+    # ---------------------------------------------------------------------------
+    COL_SLATE   = color.rgb(37,  48,  62)
+    COL_COBALT  = color.rgb(2,   120, 205)
+    COL_PACIFIC = color.rgb(2,   152, 236)
+    COL_LIME    = color.rgb(100, 186, 0)
+    COL_HONEY   = color.rgb(255, 176, 0)
+    COL_TANGO   = color.rgb(249, 110, 16)
+    COL_INDIGO  = color.rgb(81,  54,  141)
+    COL_DENIM   = color.rgb(1,   72,  123)
+    COL_WHITE   = color.rgb(220, 240, 255)
+    COL_DIM     = color.rgb(80,  80,  80)
+    COL_DARK    = color.rgb(8,   12,  20)
+    COL_NAVY    = color.rgb(20,  30,  50)
 
-selected_board    = [0]
-selected_attr     = [0]
-selected_span     = [0]
-selected_hmap_bar = [0]
-state             = [GS.HOME]
-active_board   = [None]   # board dict currently being investigated
+    # ---------------------------------------------------------------------------
+    # Game states
+    # ---------------------------------------------------------------------------
+    class GS:
+        HOME     = 0
+        BUBBLEUP = 1
+        TRACE    = 2
+        GAMEOVER = 3
+        SPLASH   = 4
+        HEATMAP  = 5
+        INTRO    = 6
 
-blink_timer      = [0]        # for GAMEOVER blink
-flash_timer      = [0]        # flash on wrong selection
-flash_type       = [0]        # 0 = error (red), 1 = neutral (no anomaly), 2 = success (green)
-flash_next_state = [GS.HOME]  # state to go to after flash clears
-success_board    = [None]     # board ref held during success flash
-FLASH_DURATION   = 1200       # ms for error/neutral
-SUCCESS_DURATION = 1333       # ms for success overlay
-board_count      = [0]        # ever-incrementing counter for template rotation
+    # ---------------------------------------------------------------------------
+    # Board templates
+    # ---------------------------------------------------------------------------
+    BOARD_TEMPLATES = [
+        {
+            "label": "frontend",
+            "heatmap":      [4, 7, 5, 8, 6, 38, 7, 4, 6, 8],
+            "hmap_spike_idx": 5,
+            "attributes": [
+                {"name": "http.route",   "bars": [3, 5, 4, 6], "spike": True,  "spike_idx": 2},
+                {"name": "browser.name", "bars": [4, 6, 3, 7], "spike": False, "spike_idx": -1},
+                {"name": "user.region",  "bars": [5, 3, 6, 4], "spike": False, "spike_idx": -1},
+                {"name": "app.version",  "bars": [6, 4, 5, 3], "spike": False, "spike_idx": -1},
+            ],
+            "trace_spans": [
+                {"name": "frontend-web",  "service": "frontend", "duration_ms": 120,  "culprit": False},
+                {"name": "api-gateway",   "service": "frontend", "duration_ms": 85,   "culprit": False},
+                {"name": "render-svc",    "service": "frontend", "duration_ms": 4800, "culprit": True},
+                {"name": "cache-lookup",  "service": "checkout", "duration_ms": 40,   "culprit": False},
+                {"name": "db-query",      "service": "db",       "duration_ms": 95,   "culprit": False},
+                {"name": "cdn-fetch",     "service": "frontend", "duration_ms": 60,   "culprit": False},
+            ],
+        },
+        {
+            "label": "checkout",
+            "heatmap":      [5, 3, 39, 6, 4, 8, 5, 7, 6, 4],
+            "hmap_spike_idx": 2,
+            "attributes": [
+                {"name": "payment.method",  "bars": [4, 7, 5, 6], "spike": False, "spike_idx": -1},
+                {"name": "cart.item_count", "bars": [6, 4, 7, 3], "spike": True,  "spike_idx": 1},
+                {"name": "geo.country",     "bars": [3, 6, 4, 7], "spike": False, "spike_idx": -1},
+                {"name": "session.type",    "bars": [7, 5, 3, 6], "spike": False, "spike_idx": -1},
+            ],
+            "trace_spans": [
+                {"name": "checkout-ui",  "service": "checkout", "duration_ms": 110,  "culprit": False},
+                {"name": "pricing-svc",  "service": "checkout", "duration_ms": 75,   "culprit": False},
+                {"name": "inventory-db", "service": "db",       "duration_ms": 4200, "culprit": True},
+                {"name": "tax-calc",     "service": "checkout", "duration_ms": 55,   "culprit": False},
+                {"name": "fraud-check",  "service": "frontend", "duration_ms": 130,  "culprit": False},
+                {"name": "cart-persist", "service": "db",       "duration_ms": 90,   "culprit": False},
+            ],
+        },
+        {
+            "label": "payments",
+            "heatmap":      [6, 4, 5, 7, 8, 4, 6, 5, 40, 4],
+            "hmap_spike_idx": 8,
+            "attributes": [
+                {"name": "error.type",    "bars": [5, 3, 7, 4], "spike": False, "spike_idx": -1},
+                {"name": "db.table",      "bars": [4, 6, 5, 7], "spike": False, "spike_idx": -1},
+                {"name": "provider.name", "bars": [7, 4, 6, 3], "spike": False, "spike_idx": -1},
+                {"name": "txn.currency",  "bars": [3, 7, 4, 6], "spike": True,  "spike_idx": 3},
+            ],
+            "trace_spans": [
+                {"name": "pay-gateway",  "service": "checkout", "duration_ms": 95,   "culprit": False},
+                {"name": "stripe-call",  "service": "frontend", "duration_ms": 150,  "culprit": False},
+                {"name": "ledger-write", "service": "db",       "duration_ms": 80,   "culprit": False},
+                {"name": "pay-auth-svc", "service": "checkout", "duration_ms": 4600, "culprit": True},
+                {"name": "receipt-gen",  "service": "frontend", "duration_ms": 45,   "culprit": False},
+                {"name": "notify-svc",   "service": "checkout", "duration_ms": 70,   "culprit": False},
+            ],
+        },
+        {
+            "label": "auth",
+            "heatmap":      [3, 41, 4, 7, 5, 4, 6, 3, 5, 7],
+            "hmap_spike_idx": 1,
+            "attributes": [
+                {"name": "auth.method", "bars": [6, 4, 5, 3], "spike": False, "spike_idx": -1},
+                {"name": "user.tier",   "bars": [3, 5, 4, 6], "spike": False, "spike_idx": -1},
+                {"name": "region.code", "bars": [5, 3, 6, 4], "spike": False, "spike_idx": -1},
+                {"name": "token.type",  "bars": [4, 6, 3, 5], "spike": True,  "spike_idx": 0},
+            ],
+            "trace_spans": [
+                {"name": "auth-gateway",  "service": "frontend", "duration_ms": 80,   "culprit": False},
+                {"name": "token-verify",  "service": "checkout", "duration_ms": 55,   "culprit": False},
+                {"name": "session-store", "service": "db",       "duration_ms": 70,   "culprit": False},
+                {"name": "rate-limiter",  "service": "checkout", "duration_ms": 45,   "culprit": False},
+                {"name": "jwt-decode",    "service": "frontend", "duration_ms": 4900, "culprit": True},
+                {"name": "audit-log",     "service": "db",       "duration_ms": 60,   "culprit": False},
+            ],
+        },
+    ]
+
+    # ---------------------------------------------------------------------------
+    # Active game state
+    # ---------------------------------------------------------------------------
+    boards         = []    # list of active board dicts: {template, start_ms, timer_ms}
+    score          = 0
+    timeouts       = 0
+    round_num      = 0
+    MAX_TIMEOUTS   = 5
+    BASE_TIMER     = 45000  # 45 s
+
+    selected_board    = [0]
+    selected_attr     = [0]
+    selected_span     = [0]
+    selected_hmap_bar = [0]
+    state             = [GS.HOME]
+    active_board   = [None]   # board dict currently being investigated
+
+    blink_timer      = [0]        # for GAMEOVER blink
+    flash_timer      = [0]        # flash on wrong selection
+    flash_type       = [0]        # 0 = error (red), 1 = neutral (no anomaly), 2 = success (green)
+    flash_next_state = [GS.HOME]  # state to go to after flash clears
+    success_board    = [None]     # board ref held during success flash
+    FLASH_DURATION   = 1200       # ms for error/neutral
+    SUCCESS_DURATION = 1333       # ms for success overlay
+    board_count      = [0]        # ever-incrementing counter for template rotation
+
+    # Screen dimensions
+    SW = 320
+    SH = 240
+    TOPBAR_H = 20
+
+    HMAP_N       = 10    # interactive bars
+    HMAP_BAR_W   = 22    # width of each interactive bar
+    HMAP_BAR_GAP = 4     # gap between bars
+    HMAP_X_START = (SW - HMAP_N * (HMAP_BAR_W + HMAP_BAR_GAP)) // 2
+    HMAP_DECOR   = [3, 5, 4]  # decorative flanking bar heights (dim)
+
+    CARD_COLS  = 2
+    CARD_ROWS  = 2
+    CARD_PAD   = 4
+    BAR_MAX_H  = 40   # max bar height in pixels for baseline (value 10)
+    SPIKE_H    = 70   # bar height in pixels for spike bar
+
+    SPAN_H     = 30   # height of each span row
+    TRACE_MAX  = 5000 # ms reference for bar width
+
+except Exception as e:
+    _write_top_level_error("BOOT-TIME EXCEPTION", e)
+    raise
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -217,26 +256,6 @@ def _resume_inactive_boards():
             del b["_paused_at"]
 
 
-# Button guards ---------------------------------------------------------------
-_prev_pressed = set()
-
-def _update_prev_pressed():
-    global _prev_pressed
-    _prev_pressed = set(io.pressed)
-
-def _just_pressed(name):
-    btn = getattr(io, name, None)
-    return btn is not None and btn in io.pressed and btn not in _prev_pressed
-
-def _just_pressed_any(*names):
-    return any(_just_pressed(n) for n in names)
-
-
-# Screen dimensions
-SW = 320
-SH = 240
-TOPBAR_H = 20
-
 # ---------------------------------------------------------------------------
 # Rendering helpers
 # ---------------------------------------------------------------------------
@@ -249,21 +268,21 @@ def _draw_topbar(label_left, label_right=None):
     # Screen label
     screen.pen = COL_WHITE
     screen.font = small_font
-    screen.text(label_left, 22, 4)
+    screen.text(label_left, vec2(22, 4))
     # Board label center
     if label_right:
         screen.pen = COL_PACIFIC
         screen.font = small_font
-        screen.text(label_right, 110, 4)
+        screen.text(label_right, vec2(110, 4))
     # Score
     score_str = "SCR:{}".format(score)
     screen.pen = COL_HONEY
     screen.font = small_font
-    screen.text(score_str, 190, 4)
+    screen.text(score_str, vec2(190, 4))
     # SLAs left label + pips
     screen.pen = COL_WHITE
     screen.font = small_font
-    screen.text("SLAs:", 233, 4)
+    screen.text("SLAs:", vec2(233, 4))
     remaining = MAX_TIMEOUTS - timeouts
     for i in range(MAX_TIMEOUTS):
         px = 270 + i * 9
@@ -288,7 +307,7 @@ def _draw_timer_bar(board):
         if blink_on:
             screen.pen = COL_TANGO
             screen.font = small_font
-            screen.text("{}s".format(secs_left), SW - 20, SH - 20)
+            screen.text("{}s".format(secs_left), vec2(SW - 20, SH - 20))
 
 
 def _draw_heatmap(hmap, x, y, w, h, spike_col=COL_HONEY):
@@ -345,7 +364,7 @@ def _draw_intro():
     screen.rectangle(0, 0, SW, 28)
     screen.pen = COL_WHITE
     screen.font = large_font
-    screen.text("BubbleUp", 88, 5)
+    screen.text("BubbleUp", vec2(88, 5))
 
     # Explanation box
     screen.pen = color.rgb(15, 22, 35)
@@ -358,26 +377,25 @@ def _draw_intro():
 
     screen.pen = COL_WHITE
     screen.font = small_font
-    screen.text("Anomaly alerts are firing.", 20, 50)
-    screen.text("Use BubbleUp to find the root", 20, 66)
-    screen.text("cause before your SLAs breach.", 20, 80)
+    screen.text("Anomaly alerts are firing.", vec2(20, 50))
+    screen.text("Use BubbleUp to find the root", vec2(20, 66))
+    screen.text("cause before your SLAs breach.", vec2(20, 80))
     screen.pen = COL_HONEY
-    screen.text("1. Select a spiking board", 20, 100)
-    screen.text("2. Find the anomalous attribute", 20, 114)
-    screen.text("3. Identify the culprit span", 20, 128)
+    screen.text("1. Select a spiking board", vec2(20, 100))
+    screen.text("2. Find the anomalous attribute", vec2(20, 114))
+    screen.text("3. Identify the culprit span", vec2(20, 128))
     screen.pen = COL_TANGO
-    screen.text("5 SLA breaches = game over.", 20, 152)
+    screen.text("5 SLA breaches = game over.", vec2(20, 152))
 
     # Prompt
     screen.pen = COL_LIME
     screen.font = small_font
-    screen.text("Press B to begin", 100, 195)
+    screen.text("Press B to begin", vec2(100, 195))
 
 
 def _handle_intro_input():
-    if _just_pressed("BUTTON_B"):
+    if badge.pressed(BUTTON_B):
         _maybe_add_boards()
-        _prev_pressed.clear()
         state[0] = GS.HOME
 
 
@@ -393,7 +411,7 @@ def _draw_home():
     if n == 0:
         screen.pen = COL_DIM
         screen.font = small_font
-        screen.text("Loading...", SW // 2 - 30, SH // 2)
+        screen.text("Loading...", vec2(SW // 2 - 30, SH // 2))
         return
 
     avail_h = SH - TOPBAR_H
@@ -415,12 +433,12 @@ def _draw_home():
             screen.rectangle(SW - 2, sy, 2, strip_h)
             screen.pen = COL_TANGO
             screen.font = small_font
-            screen.text("INVESTIGATE >", SW - 100, sy + 3)
+            screen.text("INVESTIGATE >", vec2(SW - 100, sy + 3))
 
         # Label
         screen.pen = COL_HONEY
         screen.font = small_font
-        screen.text(tmpl["label"], 4, sy + 3)
+        screen.text(tmpl["label"], vec2(4, sy + 3))
 
         # Heatmap — leave 10px top margin for label, 8px bottom for timer bar
         hmap_y = sy + 14
@@ -444,7 +462,7 @@ def _draw_home():
             if blink_on:
                 screen.pen = COL_TANGO
                 screen.font = small_font
-                screen.text("{}s".format(secs_left), SW - 24, sy + strip_h - 20)
+                screen.text("{}s".format(secs_left), vec2(SW - 24, sy + strip_h - 20))
 
 
 def _handle_home_input():
@@ -454,30 +472,23 @@ def _handle_home_input():
     if n == 0:
         return
 
-    if _just_pressed("BUTTON_UP"):
+    if badge.pressed(BUTTON_UP):
         selected_board[0] = (selected_board[0] - 1) % n
-    if _just_pressed("BUTTON_DOWN"):
+    if badge.pressed(BUTTON_DOWN):
         selected_board[0] = (selected_board[0] + 1) % n
 
-    if _just_pressed("BUTTON_B"):
+    if badge.pressed(BUTTON_B):
         active_board[0] = boards[selected_board[0]]
         selected_hmap_bar[0] = 0
         flash_timer[0] = 0
         flash_type[0] = 0
         _pause_inactive_boards()
-        _prev_pressed.clear()
         state[0] = GS.HEATMAP
 
 
 # ---------------------------------------------------------------------------
 # HEATMAP investigation screen
 # ---------------------------------------------------------------------------
-HMAP_N       = 10    # interactive bars
-HMAP_BAR_W   = 22    # width of each interactive bar
-HMAP_BAR_GAP = 4     # gap between bars
-HMAP_X_START = (SW - HMAP_N * (HMAP_BAR_W + HMAP_BAR_GAP)) // 2
-HMAP_DECOR   = [3, 5, 4]  # decorative flanking bar heights (dim)
-
 def _draw_heatmap_screen():
     board = active_board[0]
     if board is None:
@@ -497,7 +508,7 @@ def _draw_heatmap_screen():
     # Prompt
     screen.pen = COL_WHITE
     screen.font = small_font
-    screen.text("Find the anomaly  A/C:move  B:select", 10, TOPBAR_H + 6)
+    screen.text("Find the anomaly  A/C:move  B:select", vec2(10, TOPBAR_H + 6))
 
     # Decorative left bars
     for i, dh in enumerate(HMAP_DECOR):
@@ -548,21 +559,20 @@ def _handle_heatmap_input():
         state[0] = GS.HOME
         return
 
-    if _just_pressed("BUTTON_A"):
+    if badge.pressed(BUTTON_A):
         if selected_hmap_bar[0] > 0:
             selected_hmap_bar[0] -= 1
-    if _just_pressed("BUTTON_C"):
+    if badge.pressed(BUTTON_C):
         if selected_hmap_bar[0] < HMAP_N - 1:
             selected_hmap_bar[0] += 1
 
-    if _just_pressed("BUTTON_B"):
+    if badge.pressed(BUTTON_B):
         spike_idx = board["template"]["hmap_spike_idx"]
         if selected_hmap_bar[0] == spike_idx:
             # Correct bar — go to BubbleUp
             selected_attr[0] = 0
             flash_timer[0] = 0
             flash_type[0] = 0
-            _prev_pressed.clear()
             state[0] = GS.BUBBLEUP
         else:
             # Wrong bar — neutral flash
@@ -573,12 +583,6 @@ def _handle_heatmap_input():
 # ---------------------------------------------------------------------------
 # BUBBLEUP screen (attribute cards)
 # ---------------------------------------------------------------------------
-CARD_COLS  = 2
-CARD_ROWS  = 2
-CARD_PAD   = 4
-BAR_MAX_H  = 40   # max bar height in pixels for baseline (value 10)
-SPIKE_H    = 70   # bar height in pixels for spike bar
-
 def _draw_bubbleup():
     board = active_board[0]
     if board is None:
@@ -622,7 +626,7 @@ def _draw_bubbleup():
         # Card label
         screen.pen = COL_HONEY
         screen.font = small_font
-        screen.text(attr["name"], cx + 3, cy + 3)
+        screen.text(attr["name"], vec2(cx + 3, cy + 3))
 
         # Bars
         n_bars = len(attr["bars"])
@@ -657,20 +661,20 @@ def _handle_bubbleup_input():
         return
 
     # Navigate 2×2 grid
-    if _just_pressed("BUTTON_UP"):
+    if badge.pressed(BUTTON_UP):
         if selected_attr[0] >= CARD_COLS:
             selected_attr[0] -= CARD_COLS
-    if _just_pressed("BUTTON_DOWN"):
+    if badge.pressed(BUTTON_DOWN):
         if selected_attr[0] + CARD_COLS < 4:
             selected_attr[0] += CARD_COLS
-    if _just_pressed("BUTTON_A"):
+    if badge.pressed(BUTTON_A):
         if selected_attr[0] % CARD_COLS > 0:
             selected_attr[0] -= 1
-    if _just_pressed("BUTTON_C"):
+    if badge.pressed(BUTTON_C):
         if selected_attr[0] % CARD_COLS < CARD_COLS - 1:
             selected_attr[0] += 1
 
-    if _just_pressed("BUTTON_B"):
+    if badge.pressed(BUTTON_B):
         attr = board["template"]["attributes"][selected_attr[0]]
         if attr["spike"]:
             # Correct card — go to TRACE
@@ -685,9 +689,6 @@ def _handle_bubbleup_input():
 # ---------------------------------------------------------------------------
 # TRACE screen
 # ---------------------------------------------------------------------------
-SPAN_H     = 30   # height of each span row
-TRACE_MAX  = 5000 # ms reference for bar width
-
 def _draw_trace():
     board = active_board[0]
     if board is None and success_board[0] is None:
@@ -727,13 +728,13 @@ def _draw_trace():
         name = span["name"]
         screen.pen = COL_WHITE
         screen.font = small_font
-        screen.text(name, 16, sy + 4)
+        screen.text(name, vec2(16, sy + 4))
 
         # Duration ms label
         dur_str = "{}ms".format(span["duration_ms"])
         screen.pen = COL_DIM
         screen.font = small_font
-        screen.text(dur_str, 16, sy + 16)
+        screen.text(dur_str, vec2(16, sy + 16))
 
         # Horizontal duration bar
         bar_x = 110
@@ -765,12 +766,12 @@ def _handle_trace_input():
     spans = board["template"]["trace_spans"]
     n = len(spans)
 
-    if _just_pressed("BUTTON_UP"):
+    if badge.pressed(BUTTON_UP):
         selected_span[0] = (selected_span[0] - 1) % n
-    if _just_pressed("BUTTON_DOWN"):
+    if badge.pressed(BUTTON_DOWN):
         selected_span[0] = (selected_span[0] + 1) % n
 
-    if _just_pressed("BUTTON_B"):
+    if badge.pressed(BUTTON_B):
         span = spans[selected_span[0]]
         if span["culprit"]:
             # Correct! Show success overlay then go home
@@ -837,7 +838,7 @@ def _draw_gameover():
     # GAME OVER — centered at x=97 (9 chars × 14px = 126, (320-126)//2 = 97)
     screen.pen = COL_TANGO
     screen.font = large_font
-    screen.text("GAME OVER", 97, 25)
+    screen.text("GAME OVER", vec2(97, 25))
 
     # Congratulatory line
     if score >= 6:
@@ -849,34 +850,34 @@ def _draw_gameover():
     msg_x = (SW - len(msg) * 8) // 2
     screen.pen = COL_WHITE
     screen.font = small_font
-    screen.text(msg, msg_x, 62)
+    screen.text(msg, vec2(msg_x, 62))
 
     # Score — centered (8 chars base + digits, 14px large_font)
     score_line = "SCORE: {}".format(score)
     score_x = (SW - len(score_line) * 14) // 2
     screen.pen = COL_HONEY
     screen.font = large_font
-    screen.text(score_line, score_x, 88)
+    screen.text(score_line, vec2(score_x, 88))
 
     # Issues discovered — centered
     issues_line = "ISSUES DISCOVERED: {}".format(score)
     issues_x = (SW - len(issues_line) * 8) // 2
     screen.pen = COL_WHITE
     screen.font = small_font
-    screen.text(issues_line, issues_x, 130)
+    screen.text(issues_line, vec2(issues_x, 130))
 
     # Static prompt — centered, B only
     prompt = "Press B to try again."
     prompt_x = (SW - len(prompt) * 8) // 2
     screen.pen = COL_LIME
     screen.font = small_font
-    screen.text(prompt, prompt_x, 185)
+    screen.text(prompt, vec2(prompt_x, 185))
 
 
 def _handle_gameover_input():
     global score, timeouts, round_num, boards, state
 
-    if _just_pressed("BUTTON_B"):
+    if badge.pressed(BUTTON_B):
         # Reset game
         score     = 0
         timeouts  = 0
@@ -908,27 +909,30 @@ def _draw_splash():
     # Instructions
     screen.pen = COL_WHITE
     screen.font = small_font
-    screen.text("Spike detected. Investigate fast.", 44, 140)
-    screen.text("Find the bad attribute. Find span.", 44, 154)
-    screen.text("5 SLA breaches = game over.", 65, 168)
+    screen.text("Spike detected. Investigate fast.", vec2(44, 140))
+    screen.text("Find the bad attribute. Find span.", vec2(44, 154))
+    screen.text("5 SLA breaches = game over.", vec2(65, 168))
 
     # Controls hint
     screen.pen = COL_HONEY
     screen.font = small_font
-    screen.text("UP/DN:select  A/C:left/right  B:ok", 37, 184)
+    screen.text("UP/DN:select  A/C:left/right  B:ok", vec2(37, 184))
 
     # Blinking prompt
     blink_on = (((_now() - blink_timer[0]) // 500) % 2) == 0
     if blink_on:
         screen.pen = COL_LIME
         screen.font = small_font
-        screen.text("[ ANY BUTTON ] START", 90, 212)
+        screen.text("[ ANY BUTTON ] START", vec2(90, 212))
 
 
 def _handle_splash_input():
-    any_pressed = _just_pressed_any(
-        "BUTTON_UP", "BUTTON_DOWN", "BUTTON_LEFT", "BUTTON_RIGHT",
-        "BUTTON_A", "BUTTON_B", "BUTTON_C"
+    any_pressed = (
+        badge.pressed(BUTTON_UP)
+        or badge.pressed(BUTTON_DOWN)
+        or badge.pressed(BUTTON_A)
+        or badge.pressed(BUTTON_B)
+        or badge.pressed(BUTTON_C)
     )
     if any_pressed:
         boards.clear()
@@ -968,10 +972,10 @@ def _draw_flash():
         screen.rectangle(box_x + 179, box_y, 1, 36)
         screen.pen = COL_WHITE
         screen.font = small_font
-        screen.text("No anomaly detected", box_x + 12, box_y + 8)
+        screen.text("No anomaly detected", vec2(box_x + 12, box_y + 8))
         screen.pen = COL_DIM
         screen.font = small_font
-        screen.text("Try another attribute", box_x + 10, box_y + 22)
+        screen.text("Try another attribute", vec2(box_x + 10, box_y + 22))
     elif flash_type[0] == 2:
         # Success — full screen overlay
         screen.pen = color.rgb(5, 40, 10)
@@ -983,23 +987,28 @@ def _draw_flash():
         # Main message
         screen.pen = COL_LIME
         screen.font = large_font
-        screen.text("Issue Discovered!", 52, 70)
+        screen.text("Issue Discovered!", vec2(52, 70))
         # Subtext
         screen.pen = COL_WHITE
         screen.font = small_font
-        screen.text("Root cause identified.", 84, 110)
-        screen.text("Returning to boards...", 84, 126)
+        screen.text("Root cause identified.", vec2(84, 110))
+        screen.text("Returning to boards...", vec2(84, 126))
         # Score so far
         screen.pen = COL_HONEY
         screen.font = large_font
         score_str = "Score: {}".format(score)
         score_x = (SW - len(score_str) * 14) // 2
-        screen.text(score_str, score_x, 160)
+        screen.text(score_str, vec2(score_x, 160))
 
 
 # ---------------------------------------------------------------------------
-# Main update loop
+# BadgeOS entry points
 # ---------------------------------------------------------------------------
+def init():
+    blink_timer[0] = _now()
+    state[0] = GS.SPLASH
+
+
 def update():
     cur_state = state[0]
 
@@ -1042,12 +1051,14 @@ def update():
         _draw_gameover()
         _handle_gameover_input()
 
-    _update_prev_pressed()
+
+def on_exit():
+    pass
 
 
-# ---------------------------------------------------------------------------
-# Boot
-# ---------------------------------------------------------------------------
-blink_timer[0] = _now()
-state[0] = GS.SPLASH
-run(update)
+try:
+    init()
+    run(update)
+except Exception as e:
+    _write_top_level_error("RUN-TIME EXCEPTION", e)
+    raise
